@@ -41,9 +41,11 @@ Public Sub ExportAllCharts_Fast_ChartSheets_Direct()
     ' Step 3: Build new PDF output path
     newFileName = Format(Now, "yyyy_mm_dd_HHNNSS") & "_" & Format(Timer * 1000 Mod 1000, "000")
     outPath = pdfFolder & "\APAC_Overall_KPI_" & newFileName & ".pdf"
+    LogPdf "START path=[" & ThisWorkbook.Path & "] OneDriveCommercial=[" & Environ$("OneDriveCommercial") & "] pdfFolder=[" & pdfFolder & "] out=[" & outPath & "]"
 
     ' Step 4: Move all existing PDFs from pdf\ into pdf\archive\
     ArchiveExistingPdfs pdfFolder, archiveFolder
+    LogPdf "ARCHIVED pdfFilesLeftInFolder=" & CountPdfs(pdfFolder)
 
     ' Step 5: Clean up archive\ - delete files older than 30 days
     CleanupOldPdfExports archiveFolder, 30, "APAC_Overall_KPI_"
@@ -167,6 +169,7 @@ Next ws
 
     gStep = "Export: ExportSheetNamesToPdf_Safe"
     ExportSheetNamesToPdf_Safe exportNames, outPath
+    LogPdf "EXPORTED sheets=" & exportNames.Count & " fileExists=" & (Dir(outPath) <> "") & " size=" & IIf(Dir(outPath) <> "", FileLen(outPath), 0)
 
     gStep = "DeleteAllChartSheetsTemp (final)"
     DeleteAllChartSheetsTemp
@@ -184,6 +187,7 @@ CleanExit:
 EH:
     errNo = Err.Number
     errMsg = Err.Description
+    LogPdf "ERROR step=[" & gStep & "] " & errNo & " - " & errMsg
 
     If errNo = 0 Then
         errMsg = "Unknown error (Err.Number=0). Most likely a swallowed error before this handler." & vbCrLf & _
@@ -691,6 +695,35 @@ End Sub
 ' @param folderPath Full absolute folder path
 ' @return True if folder ready, False if failed
 '========================================================
+'--------------------------------------------------
+' Append one line to %TEMP%\APAC_PdfExport.log (never raises)
+'--------------------------------------------------
+Private Sub LogPdf(ByVal msg As String)
+    On Error Resume Next
+    Dim f As Integer
+    f = FreeFile
+    Open Environ$("TEMP") & "\APAC_PdfExport.log" For Append As #f
+    Print #f, Format$(Now, "yyyy-mm-dd hh:nn:ss") & " | " & Environ$("USERNAME") & " | " & msg
+    Close #f
+    On Error GoTo 0
+End Sub
+
+'--------------------------------------------------
+' Count *.pdf files directly in a folder (0 on any error)
+'--------------------------------------------------
+Private Function CountPdfs(ByVal folderPath As String) As Long
+    On Error Resume Next
+    Dim fso As Object, f As Object, n As Long
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    If fso.FolderExists(folderPath) Then
+        For Each f In fso.GetFolder(folderPath).Files
+            If LCase$(fso.GetExtensionName(f.Name)) = "pdf" Then n = n + 1
+        Next f
+    End If
+    CountPdfs = n
+    On Error GoTo 0
+End Function
+
 Public Function EnsureFolderExists(ByVal folderPath As String) As Boolean
     On Error GoTo EH
 
@@ -823,6 +856,7 @@ Public Sub ArchiveExistingPdfs( _
             fso.MoveFile f.path, destPath
             If Err.Number <> 0 Then
                 Debug.Print "ArchiveExistingPdfs: skipped locked file [" & f.name & "] - " & Err.Description
+                LogPdf "ARCHIVE SKIPPED [" & f.name & "] " & Err.Description
                 Err.Clear
             End If
             On Error GoTo EH
